@@ -2,11 +2,28 @@
 #include <thrust/device_vector.h>
 #include <thrust/host_vector.h>
 #include <thrust/sort.h>
+#include <thrust/fill.h>
 #include <iostream>
 #include <random>
 #include <cmath>
+#include <climits>
 
-// Compute 2D grid cell index for each point
+// 2D orientation test: > 0 if (a, b, c) is counter-clockwise
+// Used to check if a point is inside the triangle
+__device__ inline float orient2d(float2 a, float2 b, float2 c) {
+    return (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+}
+
+// To check if triangle `tri` contains both vertex indices `u` and `v`
+// After triangle split, the neighbours still point to the old triangle
+// This function helps to figure out which of the 3 new sub-triangles now borders it and updates its neighbor pointer accordingly
+__device__ inline bool has_edge(int3 tri, int u, int v) {
+    bool has_u = (tri.x == u || tri.y == u || tri.z == u);
+    bool has_v = (tri.x == v || tri.y == v || tri.z == v);
+    return has_u && has_v;
+}
+
+// Kernel 1 : Compute 2D grid cell index for each point
 __global__ void compute_grid_keys(const float2* points, int* cell_keys, int n, int grid_dim) {
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= n) return;
@@ -17,7 +34,7 @@ __global__ void compute_grid_keys(const float2* points, int* cell_keys, int n, i
     cell_keys[idx] = gy * grid_dim + gx;
 }
 
-// Initialize the bounding super-triangle
+// Kernel 2 : Initialize the bounding super-triangle
 __global__ void init_super_triangle(float2* points, int3* triangles, int3* neighbors, int n) {
     if (threadIdx.x != 0 || blockIdx.x != 0) return;
 
@@ -28,6 +45,7 @@ __global__ void init_super_triangle(float2* points, int3* triangles, int3* neigh
     triangles[0] = make_int3(n,n + 1,n + 2);
     neighbors[0] = make_int3(-1,-1,-1);
 }
+
 
 int main() {
     const int N = 10000;               
